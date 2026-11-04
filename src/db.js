@@ -63,6 +63,8 @@ export async function initDb() {
         TRY_CAST(replace(RAIN, ',', '.') AS DOUBLE) AS rain,
         TRY_CAST(replace(MEAN_HUMID, ',', '.') AS DOUBLE) AS mean_humid,
         TRY_CAST(replace(AVG_WIND_SPEED, ',', '.') AS DOUBLE) AS avg_wind_speed,
+        TRY_CAST(replace(HIGH_WIND_SPEED, ',', '.') AS DOUBLE) AS high_wind_speed,
+        TRY_CAST(replace(DOM_DIR, ',', '.') AS DOUBLE) AS dom_dir,
         TRY_CAST(replace(MEAN_BAROM, ',', '.') AS DOUBLE) AS mean_barom
       FROM read_csv('CLIMATOLOGICALDATA.csv', header = true, all_varchar = true)
     `)

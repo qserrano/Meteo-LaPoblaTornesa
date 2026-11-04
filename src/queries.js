@@ -306,6 +306,71 @@ export async function diasCalorHelada() {
 }
 
 /**
+ * Viento: días por rumbo (8 sectores) y la racha más fuerte.
+ * El rumbo 0 es el norte y sigue en el sentido de las agujas del reloj.
+ */
+export async function viento() {
+  await initDb()
+  const conn = getConnection()
+  const rumbosResult = await conn.query(`
+    SELECT
+      CASE
+        WHEN dom_dir >= 337.5 OR dom_dir < 22.5 THEN 0
+        WHEN dom_dir < 67.5 THEN 1
+        WHEN dom_dir < 112.5 THEN 2
+        WHEN dom_dir < 157.5 THEN 3
+        WHEN dom_dir < 202.5 THEN 4
+        WHEN dom_dir < 247.5 THEN 5
+        WHEN dom_dir < 292.5 THEN 6
+        ELSE 7
+      END::INTEGER AS rumbo,
+      count(*)::INTEGER AS dias
+    FROM clima
+    WHERE dom_dir IS NOT NULL
+    GROUP BY 1
+    ORDER BY 1
+  `)
+  const rachaResult = await conn.query(`
+    SELECT
+      year(day)::INTEGER AS anyo,
+      month(day)::INTEGER AS mes,
+      day(day)::INTEGER AS dia,
+      round(high_wind_speed, 1) AS racha,
+      dom_dir AS grados
+    FROM clima
+    WHERE high_wind_speed = (SELECT max(high_wind_speed) FROM clima)
+    ORDER BY day
+  `)
+
+  const porRumbo = new Map(
+    rumbosResult.toArray().map((row) => [Number(row.rumbo), Number(row.dias)]),
+  )
+  const rumbos = Array.from({ length: 8 }, (_, rumbo) => ({
+    rumbo,
+    dias: porRumbo.get(rumbo) ?? 0,
+  }))
+  const total = rumbos.reduce((suma, rumbo) => suma + rumbo.dias, 0)
+  for (const rumbo of rumbos) {
+    rumbo.pct = total > 0 ? (100 * rumbo.dias) / total : 0
+  }
+
+  const rachas = rachaResult.toArray()
+  const racha = rachas.length
+    ? {
+        valor: Number(rachas[0].racha),
+        fechas: rachas.map((row) => ({
+          anyo: Number(row.anyo),
+          mes: Number(row.mes),
+          dia: Number(row.dia),
+          grados: Number(row.grados),
+        })),
+      }
+    : null
+
+  return { rumbos, total, racha }
+}
+
+/**
  * Temperaturas máximas diarias de un mes y año concretos.
  */
 export async function tempsMaximasMesAnio(mes, anyo) {

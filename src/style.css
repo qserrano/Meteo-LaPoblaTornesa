@@ -225,6 +225,12 @@ button:hover {
   background: var(--surface);
 }
 
+.chart-wrap.chart-wrap-rose {
+  width: min(420px, 100%);
+  height: min(420px, 78vw);
+  margin-inline: auto;
+}
+
 .table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line);

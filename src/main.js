@@ -6,6 +6,8 @@ import {
   PointElement,
   BarController,
   BarElement,
+  RadarController,
+  RadialLinearScale,
   LinearScale,
   CategoryScale,
   Filler,
@@ -19,6 +21,8 @@ Chart.register(
   PointElement,
   BarController,
   BarElement,
+  RadarController,
+  RadialLinearScale,
   LinearScale,
   CategoryScale,
   Filler,
@@ -69,6 +73,7 @@ app.innerHTML = `
         <option value="calor-helada">Días de calor y de helada</option>
         <option value="anio-lluvia">Año tipo · lluvia</option>
         <option value="episodios">Lluvia · episodios</option>
+        <option value="viento">Viento</option>
       </select>
     </label>
     <div id="maximas-filters" class="maximas-filters">
@@ -105,6 +110,17 @@ const yearEl = document.querySelector('#year')
 let chart = null
 
 const MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+
+const RUMBOS = [
+  { corto: 'N', nombre: 'norte' },
+  { corto: 'NE', nombre: 'noreste' },
+  { corto: 'E', nombre: 'este' },
+  { corto: 'SE', nombre: 'sureste' },
+  { corto: 'S', nombre: 'sur' },
+  { corto: 'SO', nombre: 'suroeste' },
+  { corto: 'O', nombre: 'oeste' },
+  { corto: 'NO', nombre: 'noroeste' },
+]
 
 const EJE = {
   ticks: { color: '#4d646e' },
@@ -779,6 +795,96 @@ function renderCalorHelada(filas) {
   })
 }
 
+function indiceRumbo(grados) {
+  const g = ((Number(grados) % 360) + 360) % 360
+  return Math.floor((g + 22.5) / 45) % 8
+}
+
+function renderViento(datos) {
+  const { rumbos, total, racha } = datos
+  if (!total) {
+    destroyChart()
+    resultsEl.innerHTML = `<p class="empty">No hay dirección de viento en la serie.</p>`
+    return
+  }
+
+  const ordenados = [...rumbos].sort((a, b) => b.dias - a.dias)
+  const primero = ordenados[0]
+  const segundo = ordenados[1]
+  const nombre = (rumbo) => RUMBOS[rumbo.rumbo].nombre
+  const parte = (rumbo) => `el ${nombre(rumbo)} (${formatoNumero(rumbo.pct)}%)`
+  const dominante = `${parte(primero)} y ${parte(segundo)} suman el ${formatoNumero(primero.pct + segundo.pct)}% de los días.`
+  let rachaFrase = ''
+  if (racha) {
+    const cuando =
+      racha.fechas.length === 1
+        ? `el ${racha.fechas[0].dia} de ${mesDe(racha.fechas[0]).toLowerCase()} de ${racha.fechas[0].anyo}`
+        : formatoFechas(racha.fechas)
+    const nombres = [...new Set(racha.fechas.map((fecha) => RUMBOS[indiceRumbo(fecha.grados)].nombre))]
+    const de = nombres.length === 1 ? `de ${nombres[0]}` : `de ${nombres.join(' y ')}`
+    rachaFrase = ` La racha más fuerte, ${formatoNumero(racha.valor)} km/h, fue ${cuando}, ${de}.`
+  }
+
+  destroyChart()
+  resultsEl.innerHTML = `
+    <div class="chart-header">
+      <h2>Viento</h2>
+      <p class="chart-summary">
+        ${dominante.charAt(0).toUpperCase()}${dominante.slice(1)}${rachaFrase}
+      </p>
+    </div>
+    <div class="chart-wrap chart-wrap-rose">
+      <canvas id="temp-chart" aria-label="Rosa de vientos: días por rumbo"></canvas>
+    </div>
+  `
+
+  montarGrafica(document.querySelector('#temp-chart'), {
+    type: 'radar',
+    data: {
+      labels: RUMBOS.map((rumbo) => rumbo.corto),
+      datasets: [
+        {
+          label: 'Días',
+          data: rumbos.map((rumbo) => rumbo.pct),
+          borderColor: '#0f6e8c',
+          backgroundColor: 'rgba(15, 110, 140, 0.22)',
+          pointBackgroundColor: '#0f6e8c',
+          pointRadius: 3,
+          borderWidth: 2,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (item) => {
+              const rumbo = rumbos[item.dataIndex]
+              return `${rumbo.dias.toLocaleString('es-ES')} días · ${formatoNumero(rumbo.pct)}%`
+            },
+          },
+        },
+      },
+      scales: {
+        r: {
+          beginAtZero: true,
+          ticks: {
+            color: '#4d646e',
+            backdropColor: 'transparent',
+            callback: (value) => `${Number(value).toLocaleString('es-ES', { maximumFractionDigits: 0 })}%`,
+          },
+          pointLabels: { color: '#1a2b33', font: { size: 13, weight: '600' } },
+          grid: { color: 'rgba(183, 205, 214, 0.55)' },
+          angleLines: { color: 'rgba(183, 205, 214, 0.8)' },
+        },
+      },
+    },
+  })
+}
+
 async function start() {
   try {
     const { initDb, countRows } = await import('./db.js')
@@ -789,12 +895,13 @@ async function start() {
       diasCalorHelada,
       episodiosLluvia,
       recordsSerie,
+      viento,
       temperaturaMesTodosAnios,
       tempsMaximasMesAnio,
     } = await import('./queries.js')
 
     await initDb()
-    const [n, anios, records, anio, dia, calorHelada, episodios] = await Promise.all([
+    const [n, anios, records, anio, dia, calorHelada, episodios, rosa] = await Promise.all([
       countRows(),
       aniosDisponibles(),
       recordsSerie(),
@@ -802,6 +909,7 @@ async function start() {
       diaTipo(),
       diasCalorHelada(),
       episodiosLluvia(),
+      viento(),
     ])
     renderRecords(records)
 
@@ -847,6 +955,11 @@ async function start() {
         if (vista === 'episodios') {
           if (token !== solicitud) return
           renderEpisodiosLluvia(episodios)
+          return
+        }
+        if (vista === 'viento') {
+          if (token !== solicitud) return
+          renderViento(rosa)
           return
         }
 
