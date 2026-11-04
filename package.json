@@ -1,0 +1,18 @@
+{
+  "name": "meteo-lapoblatornesa",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.1.1"
+  },
+  "dependencies": {
+    "@duckdb/duckdb-wasm": "^1.33.1-dev57.0",
+    "chart.js": "^4.5.1"
+  }
+}
