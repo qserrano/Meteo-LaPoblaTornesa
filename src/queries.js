@@ -153,7 +153,7 @@ export async function temperaturaMesTodosAnios(mes) {
   await initDb()
   const result = await getConnection().query(`
     SELECT
-      year(day) AS anyo,
+      year(day)::INTEGER AS anyo,
       round(avg(mean_temp), 1) AS temp_media,
       round(max(high_temp), 1) AS temp_max,
       round(min(low_temp), 1) AS temp_min,

@@ -63,6 +63,7 @@ app.innerHTML = `
       Gráfica
       <select id="vista" name="vista">
         <option value="maximas">Máximas diarias</option>
+        <option value="mes-anios">Un mes frente a los otros años</option>
         <option value="anio-temp">Año tipo · temperatura</option>
         <option value="anio-lluvia">Año tipo · lluvia</option>
         <option value="episodios">Lluvia · episodios</option>
@@ -510,11 +511,96 @@ function renderEpisodiosLluvia(datos) {
   })
 }
 
+function renderMesFrenteAnios(rows, mes, anyo) {
+  const mesLabel = MESES.find((m) => m.value === mes)?.label ?? String(mes)
+
+  if (!rows.length) {
+    destroyChart()
+    resultsEl.innerHTML = `<p class="empty">No hay datos de ${mesLabel.toLowerCase()}.</p>`
+    return
+  }
+
+  const elegido = rows.find((fila) => fila.anyo === anyo)
+  const masCalido = extremo(rows, 'temp_max', 1)
+  const masFrio = extremo(rows, 'temp_min', -1)
+  const extremos = `La máxima más alta fue ${formatoNumero(masCalido.temp_max)} °C en ${masCalido.anyo} y la mínima más baja ${formatoNumero(masFrio.temp_min)} °C en ${masFrio.anyo}.`
+  const resumen = elegido
+    ? `${mesLabel} de ${anyo}, marcado en naranja: máxima ${formatoNumero(elegido.temp_max)} °C, media ${formatoNumero(elegido.temp_media)} °C, mínima ${formatoNumero(elegido.temp_min)} °C. ${extremos}`
+    : `No hay datos de ${mesLabel.toLowerCase()} de ${anyo}. ${extremos}`
+
+  destroyChart()
+  resultsEl.innerHTML = `
+    <div class="chart-header">
+      <h2>${mesLabel} frente a los otros años</h2>
+      <p class="chart-summary">${resumen}</p>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="temp-chart" aria-label="Temperatura de ${mesLabel} en cada año"></canvas>
+    </div>
+  `
+
+  const marcado = (color) => ({
+    pointBackgroundColor: rows.map((fila) => (fila.anyo === anyo ? '#c45c26' : color)),
+    pointBorderColor: rows.map((fila) => (fila.anyo === anyo ? '#c45c26' : color)),
+    pointRadius: rows.map((fila) => (fila.anyo === anyo ? 6 : 3)),
+    pointHoverRadius: rows.map((fila) => (fila.anyo === anyo ? 8 : 5)),
+  })
+  const linea = (label, clave, color) => ({
+    label,
+    data: rows.map((fila) => fila[clave]),
+    borderColor: color,
+    backgroundColor: color,
+    borderWidth: 2,
+    tension: 0.25,
+    ...marcado(color),
+  })
+
+  montarGrafica(document.querySelector('#temp-chart'), {
+    type: 'line',
+    data: {
+      labels: rows.map((fila) => String(fila.anyo)),
+      datasets: [
+        linea('Máxima', 'temp_max', '#0a5570'),
+        linea('Media', 'temp_media', '#0f6e8c'),
+        linea('Mínima', 'temp_min', '#7eb0c2'),
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#1a2b33' } },
+        tooltip: {
+          callbacks: {
+            title: (items) => {
+              const fila = rows[items[0].dataIndex]
+              return fila.anyo === anyo ? `${fila.anyo} · año elegido` : String(fila.anyo)
+            },
+            label: (item) => `${item.dataset.label}: ${formatoNumero(item.parsed.y)} °C`,
+            footer: (items) => `${rows[items[0].dataIndex].dias} días`,
+          },
+        },
+      },
+      scales: {
+        x: { ...EJE, title: { ...EJE.title, display: true, text: 'Año' } },
+        y: { ...EJE, title: { ...EJE.title, display: true, text: '°C' } },
+      },
+    },
+  })
+}
+
 async function start() {
   try {
     const { initDb, countRows } = await import('./db.js')
-    const { aniosDisponibles, anioTipo, episodiosLluvia, recordsSerie, tempsMaximasMesAnio } =
-      await import('./queries.js')
+    const {
+      aniosDisponibles,
+      anioTipo,
+      episodiosLluvia,
+      recordsSerie,
+      temperaturaMesTodosAnios,
+      tempsMaximasMesAnio,
+    } = await import('./queries.js')
 
     await initDb()
     const [n, anios, records, anio, episodios] = await Promise.all([
@@ -540,7 +626,7 @@ async function start() {
     async function mostrarVista() {
       const token = ++solicitud
       const vista = vistaEl.value
-      maximasFiltersEl.hidden = vista !== 'maximas'
+      maximasFiltersEl.hidden = vista !== 'maximas' && vista !== 'mes-anios'
       resultsEl.innerHTML = `<p class="empty">Consultando…</p>`
       destroyChart()
 
@@ -563,6 +649,13 @@ async function start() {
 
         const mes = Number(monthEl.value)
         const anyo = Number(yearEl.value)
+        if (vista === 'mes-anios') {
+          const rows = await temperaturaMesTodosAnios(mes)
+          if (token !== solicitud) return
+          renderMesFrenteAnios(rows, mes, anyo)
+          return
+        }
+
         const rows = await tempsMaximasMesAnio(mes, anyo)
         if (token !== solicitud) return
         renderChart(rows, mes, anyo)
