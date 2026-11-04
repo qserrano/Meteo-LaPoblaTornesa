@@ -279,6 +279,33 @@ export async function episodiosLluvia() {
 }
 
 /**
+ * Días de calor (máxima ≥ 30 °C y ≥ 35 °C) y de helada (mínima ≤ 0 °C) por año.
+ * `meses` permite saber si el año está completo.
+ */
+export async function diasCalorHelada() {
+  await initDb()
+  const result = await getConnection().query(`
+    SELECT
+      year(day)::INTEGER AS anyo,
+      sum(CASE WHEN high_temp >= 30 THEN 1 ELSE 0 END)::INTEGER AS calor,
+      sum(CASE WHEN high_temp >= 35 THEN 1 ELSE 0 END)::INTEGER AS calor_fuerte,
+      sum(CASE WHEN low_temp <= 0 THEN 1 ELSE 0 END)::INTEGER AS helada,
+      count(DISTINCT month(day))::INTEGER AS meses
+    FROM clima
+    GROUP BY year(day)
+    ORDER BY anyo
+  `)
+
+  return result.toArray().map((row) => ({
+    anyo: Number(row.anyo),
+    calor: Number(row.calor),
+    calor_fuerte: Number(row.calor_fuerte),
+    helada: Number(row.helada),
+    meses: Number(row.meses),
+  }))
+}
+
+/**
  * Temperaturas máximas diarias de un mes y año concretos.
  */
 export async function tempsMaximasMesAnio(mes, anyo) {

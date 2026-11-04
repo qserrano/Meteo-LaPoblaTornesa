@@ -66,6 +66,7 @@ app.innerHTML = `
         <option value="mes-anios">Un mes frente a los otros años</option>
         <option value="anio-temp">Año tipo · temperatura</option>
         <option value="dia-tipo">Día tipo</option>
+        <option value="calor-helada">Días de calor y de helada</option>
         <option value="anio-lluvia">Año tipo · lluvia</option>
         <option value="episodios">Lluvia · episodios</option>
       </select>
@@ -683,6 +684,101 @@ function renderDiaTipo(datos) {
   })
 }
 
+function listaAnios(anyos) {
+  if (anyos.length <= 1) return String(anyos[0] ?? '')
+  if (anyos.length === 2) return `${anyos[0]} y ${anyos[1]}`
+  return `${anyos.slice(0, -1).join(', ')} y ${anyos.at(-1)}`
+}
+
+function aniosEnElMaximo(filas, clave) {
+  const valor = Math.max(...filas.map((fila) => fila[clave]))
+  return {
+    valor,
+    anyos: filas.filter((fila) => fila[clave] === valor).map((fila) => fila.anyo),
+  }
+}
+
+function renderCalorHelada(filas) {
+  if (!filas.length) {
+    destroyChart()
+    resultsEl.innerHTML = `<p class="empty">No hay días para contar.</p>`
+    return
+  }
+
+  const suma = (clave) => filas.reduce((total, fila) => total + fila[clave], 0)
+  const completos = filas.filter((fila) => fila.meses >= 12)
+  const abiertos = filas.filter((fila) => fila.meses < 12)
+  const masCalor = aniosEnElMaximo(completos, 'calor')
+  const masHelada = aniosEnElMaximo(completos, 'helada')
+  const entero = (n) => n.toLocaleString('es-ES')
+
+  const fraseCompletos = completos.length
+    ? ` Entre los años completos, el máximo de días de calor es ${entero(masCalor.valor)} (${listaAnios(masCalor.anyos)}) y el de heladas es ${entero(masHelada.valor)} (${listaAnios(masHelada.anyos)}).`
+    : ''
+  const fraseAbiertos = abiertos
+    .map(
+      (fila) =>
+        ` ${fila.anyo} no ha terminado y ya lleva ${entero(fila.calor)} días de calor.`,
+    )
+    .join('')
+  const fraseMarca = abiertos.length ? ' El asterisco marca un año incompleto.' : ''
+
+  destroyChart()
+  resultsEl.innerHTML = `
+    <div class="chart-header">
+      <h2>Días de calor y de helada</h2>
+      <p class="chart-summary">
+        En toda la serie hay ${entero(suma('calor'))} días con máxima de 30 °C o más;
+        ${entero(suma('calor_fuerte'))} de ellos llegan a 35 °C.
+        Hay ${entero(suma('helada'))} días con mínima de 0 °C o menos.${fraseCompletos}${fraseAbiertos}${fraseMarca}
+      </p>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="temp-chart" aria-label="Días de calor y de helada por año"></canvas>
+    </div>
+  `
+
+  const serie = (label, clave, color) => ({
+    label,
+    data: filas.map((fila) => fila[clave]),
+    backgroundColor: color,
+    borderWidth: 0,
+  })
+
+  montarGrafica(document.querySelector('#temp-chart'), {
+    type: 'bar',
+    data: {
+      labels: filas.map((fila) => (fila.meses < 12 ? `${fila.anyo}*` : String(fila.anyo))),
+      datasets: [
+        serie('≥ 30 °C', 'calor', '#c45c26'),
+        serie('≥ 35 °C', 'calor_fuerte', '#8c2f2f'),
+        serie('≤ 0 °C', 'helada', '#0f6e8c'),
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#1a2b33' } },
+        tooltip: {
+          callbacks: {
+            label: (item) => `${item.dataset.label}: ${item.parsed.y.toLocaleString('es-ES')} días`,
+          },
+        },
+      },
+      scales: {
+        x: { ...EJE, title: { ...EJE.title, display: true, text: 'Año' } },
+        y: {
+          ...EJE,
+          beginAtZero: true,
+          ticks: { ...EJE.ticks, precision: 0 },
+          title: { ...EJE.title, display: true, text: 'Días' },
+        },
+      },
+    },
+  })
+}
+
 async function start() {
   try {
     const { initDb, countRows } = await import('./db.js')
@@ -690,6 +786,7 @@ async function start() {
       aniosDisponibles,
       anioTipo,
       diaTipo,
+      diasCalorHelada,
       episodiosLluvia,
       recordsSerie,
       temperaturaMesTodosAnios,
@@ -697,12 +794,13 @@ async function start() {
     } = await import('./queries.js')
 
     await initDb()
-    const [n, anios, records, anio, dia, episodios] = await Promise.all([
+    const [n, anios, records, anio, dia, calorHelada, episodios] = await Promise.all([
       countRows(),
       aniosDisponibles(),
       recordsSerie(),
       anioTipo(),
       diaTipo(),
+      diasCalorHelada(),
       episodiosLluvia(),
     ])
     renderRecords(records)
@@ -734,6 +832,11 @@ async function start() {
         if (vista === 'dia-tipo') {
           if (token !== solicitud) return
           renderDiaTipo(dia)
+          return
+        }
+        if (vista === 'calor-helada') {
+          if (token !== solicitud) return
+          renderCalorHelada(calorHelada)
           return
         }
         if (vista === 'anio-lluvia') {
