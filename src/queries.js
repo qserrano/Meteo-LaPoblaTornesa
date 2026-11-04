@@ -77,6 +77,61 @@ export async function recordsSerie() {
   return grupos
 }
 
+/**
+ * Año tipo: media mensual de los años completos.
+ * Cada año pesa igual. El año en curso, si está incompleto, queda fuera.
+ */
+export async function anioTipo() {
+  await initDb()
+  const result = await getConnection().query(`
+    WITH completos AS (
+      SELECT year(day) AS anyo
+      FROM clima
+      GROUP BY 1
+      HAVING count(DISTINCT month(day)) = 12
+    ),
+    mensuales AS (
+      SELECT
+        year(day) AS anyo,
+        month(day) AS mes,
+        avg(high_temp) AS temp_max,
+        avg(mean_temp) AS temp_media,
+        avg(low_temp) AS temp_min,
+        sum(rain) AS lluvia
+      FROM clima
+      WHERE year(day) IN (SELECT anyo FROM completos)
+      GROUP BY 1, 2
+    )
+    SELECT
+      mes::INTEGER AS mes,
+      round(avg(temp_max), 1) AS temp_max,
+      round(avg(temp_media), 1) AS temp_media,
+      round(avg(temp_min), 1) AS temp_min,
+      round(avg(lluvia), 1) AS lluvia,
+      (SELECT min(anyo)::INTEGER FROM completos) AS desde,
+      (SELECT max(anyo)::INTEGER FROM completos) AS hasta
+    FROM mensuales
+    GROUP BY mes
+    ORDER BY mes
+  `)
+
+  const filas = result.toArray().map((row) => ({
+    mes: Number(row.mes),
+    temp_max: Number(row.temp_max),
+    temp_media: Number(row.temp_media),
+    temp_min: Number(row.temp_min),
+    lluvia: Number(row.lluvia),
+    desde: Number(row.desde),
+    hasta: Number(row.hasta),
+  }))
+
+  return {
+    desde: filas[0]?.desde ?? null,
+    hasta: filas[0]?.hasta ?? null,
+    meses: filas,
+  }
+}
+
 /** Años presentes en la serie (para el selector). */
 export async function aniosDisponibles() {
   await initDb()
