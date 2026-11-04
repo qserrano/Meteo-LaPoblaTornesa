@@ -29,6 +29,12 @@ app.innerHTML = `
 
   <p id="status" class="status" role="status">Cargando datos…</p>
 
+  <section id="records" class="records" hidden aria-labelledby="records-title">
+    <h2 id="records-title">Récords</h2>
+    <p class="records-note">Extremos de toda la serie diaria.</p>
+    <div id="record-grid" class="record-grid"></div>
+  </section>
+
   <form id="query-form" class="query-form" hidden>
     <label>
       Mes
@@ -50,6 +56,8 @@ app.innerHTML = `
 `
 
 const statusEl = document.querySelector('#status')
+const recordsEl = document.querySelector('#records')
+const recordGridEl = document.querySelector('#record-grid')
 const formEl = document.querySelector('#query-form')
 const resultsEl = document.querySelector('#results')
 const monthEl = document.querySelector('#month')
@@ -62,6 +70,50 @@ function destroyChart() {
     chart.destroy()
     chart = null
   }
+}
+
+function formatoNumero(n) {
+  return n.toLocaleString('es-ES', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })
+}
+
+function formatoFechas(fechas) {
+  const textos = fechas.map((fecha) => {
+    const mes = MESES.find((m) => m.value === fecha.mes)?.label.toLowerCase() ?? fecha.mes
+    return `${fecha.dia} de ${mes} de ${fecha.anyo}`
+  })
+  if (textos.length <= 1) return textos[0] ?? 'Sin fecha'
+  if (textos.length === 2) return `${textos[0]} y ${textos[1]}`
+  return `${textos.slice(0, -1).join(', ')} y ${textos.at(-1)}`
+}
+
+function renderRecords(records) {
+  const tarjetas = [
+    { tipo: 'calor', etiqueta: 'Día más cálido', unidad: '°C' },
+    { tipo: 'frio', etiqueta: 'Día más frío', unidad: '°C' },
+    { tipo: 'lluvia', etiqueta: 'Día más lluvioso', unidad: 'mm' },
+  ]
+
+  recordGridEl.innerHTML = tarjetas
+    .map(({ tipo, etiqueta, unidad }) => {
+      const fechas = records[tipo] ?? []
+      const valor = fechas[0]?.valor
+      const cifra = Number.isFinite(valor) ? `${formatoNumero(valor)} ${unidad}` : '—'
+      const cuando = fechas.length ? formatoFechas(fechas) : 'Sin datos'
+
+      return `
+        <article class="record-card">
+          <h3 class="record-label">${etiqueta}</h3>
+          <p class="record-value">${cifra}</p>
+          <p class="record-date">${cuando}</p>
+        </article>
+      `
+    })
+    .join('')
+
+  recordsEl.hidden = false
 }
 
 function renderChart(rows, mes, anyo) {
@@ -148,10 +200,15 @@ function renderChart(rows, mes, anyo) {
 async function start() {
   try {
     const { initDb, countRows } = await import('./db.js')
-    const { aniosDisponibles, tempsMaximasMesAnio } = await import('./queries.js')
+    const { aniosDisponibles, recordsSerie, tempsMaximasMesAnio } = await import('./queries.js')
 
     await initDb()
-    const [n, anios] = await Promise.all([countRows(), aniosDisponibles()])
+    const [n, anios, records] = await Promise.all([
+      countRows(),
+      aniosDisponibles(),
+      recordsSerie(),
+    ])
+    renderRecords(records)
 
     yearEl.innerHTML = anios
       .map((y) => `<option value="${y}">${y}</option>`)

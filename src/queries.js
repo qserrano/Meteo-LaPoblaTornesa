@@ -16,6 +16,67 @@ function assertAnio(anyo) {
   return year
 }
 
+/**
+ * Extremos de toda la serie: día más cálido, más frío y más lluvioso.
+ * Si hay empate, devuelve todas las fechas.
+ */
+export async function recordsSerie() {
+  await initDb()
+  const result = await getConnection().query(`
+    WITH extremos AS (
+      SELECT
+        max(high_temp) AS max_high,
+        min(low_temp) AS min_low,
+        max(rain) AS max_rain
+      FROM clima
+    )
+    SELECT
+      'calor' AS tipo,
+      year(day)::INTEGER AS anyo,
+      month(day)::INTEGER AS mes,
+      day(day)::INTEGER AS dia,
+      round(high_temp, 1) AS valor
+    FROM clima, extremos
+    WHERE high_temp = max_high
+    UNION ALL
+    SELECT
+      'frio',
+      year(day)::INTEGER,
+      month(day)::INTEGER,
+      day(day)::INTEGER,
+      round(low_temp, 1)
+    FROM clima, extremos
+    WHERE low_temp = min_low
+    UNION ALL
+    SELECT
+      'lluvia',
+      year(day)::INTEGER,
+      month(day)::INTEGER,
+      day(day)::INTEGER,
+      round(rain, 1)
+    FROM clima, extremos
+    WHERE rain = max_rain
+  `)
+
+  const grupos = { calor: [], frio: [], lluvia: [] }
+  for (const row of result.toArray()) {
+    const tipo = String(row.tipo)
+    if (!grupos[tipo]) continue
+    grupos[tipo].push({
+      anyo: Number(row.anyo),
+      mes: Number(row.mes),
+      dia: Number(row.dia),
+      valor: Number(row.valor),
+    })
+  }
+
+  for (const fechas of Object.values(grupos)) {
+    fechas.sort((a, b) => a.anyo - b.anyo || a.mes - b.mes || a.dia - b.dia)
+  }
+
+  return grupos
+}
+
 /** Años presentes en la serie (para el selector). */
 export async function aniosDisponibles() {
   await initDb()
