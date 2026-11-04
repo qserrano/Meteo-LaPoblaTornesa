@@ -65,6 +65,7 @@ app.innerHTML = `
         <option value="maximas">Máximas diarias</option>
         <option value="anio-temp">Año tipo · temperatura</option>
         <option value="anio-lluvia">Año tipo · lluvia</option>
+        <option value="episodios">Lluvia · episodios</option>
       </select>
     </label>
     <div id="maximas-filters" class="maximas-filters">
@@ -117,6 +118,44 @@ function destroyChart() {
 
 function mesDe(fila) {
   return MESES.find((m) => m.value === fila.mes)?.label ?? String(fila.mes)
+}
+
+function mesCorto(mes) {
+  return (MESES_CORTOS[mes - 1] ?? String(mes)).toLowerCase()
+}
+
+function mismaFecha(a, b) {
+  return a.dia === b.dia && a.mes === b.mes && a.anyo === b.anyo
+}
+
+function fraseEpisodio(ep) {
+  const { inicio, fin } = ep
+  const mesInicio = mesDe(inicio).toLowerCase()
+  const mesFin = mesDe(fin).toLowerCase()
+  if (mismaFecha(inicio, fin)) {
+    return `el ${inicio.dia} de ${mesInicio} de ${inicio.anyo}`
+  }
+  if (inicio.mes === fin.mes && inicio.anyo === fin.anyo) {
+    return `del ${inicio.dia} al ${fin.dia} de ${mesInicio} de ${inicio.anyo}`
+  }
+  if (inicio.anyo === fin.anyo) {
+    return `del ${inicio.dia} de ${mesInicio} al ${fin.dia} de ${mesFin} de ${inicio.anyo}`
+  }
+  return `del ${inicio.dia} de ${mesInicio} de ${inicio.anyo} al ${fin.dia} de ${mesFin} de ${fin.anyo}`
+}
+
+function etiquetaEpisodio(ep) {
+  const { inicio, fin } = ep
+  if (mismaFecha(inicio, fin)) {
+    return `${inicio.dia} ${mesCorto(inicio.mes)} ${inicio.anyo}`
+  }
+  if (inicio.mes === fin.mes && inicio.anyo === fin.anyo) {
+    return `${inicio.dia}–${fin.dia} ${mesCorto(inicio.mes)} ${inicio.anyo}`
+  }
+  if (inicio.anyo === fin.anyo) {
+    return `${inicio.dia} ${mesCorto(inicio.mes)}–${fin.dia} ${mesCorto(fin.mes)} ${inicio.anyo}`
+  }
+  return `${inicio.dia} ${mesCorto(inicio.mes)} ${inicio.anyo}–${fin.dia} ${mesCorto(fin.mes)} ${fin.anyo}`
 }
 
 function extremo(filas, clave, sentido) {
@@ -392,17 +431,98 @@ function renderAnioLluvia(datos) {
   })
 }
 
+function renderEpisodiosLluvia(datos) {
+  const { episodios, total, umbralRacha, umbralPico } = datos
+  if (!episodios.length) {
+    destroyChart()
+    resultsEl.innerHTML = `<p class="empty">No hay episodios de lluvia en la serie.</p>`
+    return
+  }
+
+  const suma = episodios.reduce((acumulado, ep) => acumulado + ep.lluvia, 0)
+  const pct = total > 0 ? Math.round((suma / total) * 100) : 0
+  const mayor = extremo(episodios, 'lluvia', 1)
+  const mmUmbral = (n) =>
+    `${n.toLocaleString('es-ES', { maximumFractionDigits: 1 })} mm`
+  const racha = mmUmbral(umbralRacha)
+  const pico = mmUmbral(umbralPico)
+
+  destroyChart()
+  resultsEl.innerHTML = `
+    <div class="chart-header">
+      <h2>Lluvia · episodios</h2>
+      <p class="chart-summary">
+        Una racha de días seguidos con al menos ${racha}, si alguno llega a ${pico}, cuenta como episodio.
+        Hay ${episodios.length} y reúnen ${formatoNumero(suma)} mm, el ${pct}% de toda la lluvia.
+        La mayor va ${fraseEpisodio(mayor)} y dejó ${formatoNumero(mayor.lluvia)} mm.
+      </p>
+    </div>
+    <div class="chart-wrap" id="episode-chart-wrap">
+      <canvas id="temp-chart" aria-label="Lluvia acumulada en cada episodio"></canvas>
+    </div>
+  `
+
+  const wrap = document.querySelector('#episode-chart-wrap')
+  wrap.style.height = `${Math.max(420, episodios.length * 28 + 56)}px`
+
+  montarGrafica(document.querySelector('#temp-chart'), {
+    type: 'bar',
+    data: {
+      labels: episodios.map(etiquetaEpisodio),
+      datasets: [
+        {
+          label: 'Lluvia',
+          data: episodios.map((ep) => ep.lluvia),
+          backgroundColor: 'rgba(15, 110, 140, 0.75)',
+          borderColor: '#0f6e8c',
+          borderWidth: 1,
+        },
+      ],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (item) => {
+              const ep = episodios[item.dataIndex]
+              const dias = ep.dias === 1 ? '1 día' : `${ep.dias} días`
+              return `${formatoNumero(ep.lluvia)} mm en ${dias} · pico ${formatoNumero(ep.pico)} mm`
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          ...EJE,
+          beginAtZero: true,
+          title: { ...EJE.title, display: true, text: 'mm' },
+        },
+        y: {
+          ...EJE,
+          ticks: { ...EJE.ticks, autoSkip: false, font: { size: 11 } },
+        },
+      },
+    },
+  })
+}
+
 async function start() {
   try {
     const { initDb, countRows } = await import('./db.js')
-    const { aniosDisponibles, anioTipo, recordsSerie, tempsMaximasMesAnio } = await import('./queries.js')
+    const { aniosDisponibles, anioTipo, episodiosLluvia, recordsSerie, tempsMaximasMesAnio } =
+      await import('./queries.js')
 
     await initDb()
-    const [n, anios, records, anio] = await Promise.all([
+    const [n, anios, records, anio, episodios] = await Promise.all([
       countRows(),
       aniosDisponibles(),
       recordsSerie(),
       anioTipo(),
+      episodiosLluvia(),
     ])
     renderRecords(records)
 
@@ -433,6 +553,11 @@ async function start() {
         if (vista === 'anio-lluvia') {
           if (token !== solicitud) return
           renderAnioLluvia(anio)
+          return
+        }
+        if (vista === 'episodios') {
+          if (token !== solicitud) return
+          renderEpisodiosLluvia(episodios)
           return
         }
 

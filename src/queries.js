@@ -174,6 +174,79 @@ export async function temperaturaMesTodosAnios(mes) {
 }
 
 /**
+ * Episodios de lluvia: rachas de días seguidos con al menos `umbralRacha` mm
+ * que incluyen algún día de `umbralPico` mm o más.
+ */
+export async function episodiosLluvia() {
+  const umbralRacha = 1
+  const umbralPico = 50
+
+  await initDb()
+  const conn = getConnection()
+  const totalResult = await conn.query(`SELECT round(sum(rain), 1) AS total FROM clima`)
+  const episodiosResult = await conn.query(`
+      WITH mojados AS (
+        SELECT
+          day,
+          rain,
+          lag(day) OVER (ORDER BY day) AS prev
+        FROM clima
+        WHERE rain >= ${umbralRacha}
+      ),
+      marcados AS (
+        SELECT
+          day,
+          rain,
+          CASE
+            WHEN prev IS NULL OR day > prev + INTERVAL 1 DAY THEN 1
+            ELSE 0
+          END AS corte
+        FROM mojados
+      ),
+      grupos AS (
+        SELECT
+          day,
+          rain,
+          sum(corte) OVER (ORDER BY day) AS grupo
+        FROM marcados
+      )
+      SELECT
+        year(min(day))::INTEGER AS anyo_ini,
+        month(min(day))::INTEGER AS mes_ini,
+        day(min(day))::INTEGER AS dia_ini,
+        year(max(day))::INTEGER AS anyo_fin,
+        month(max(day))::INTEGER AS mes_fin,
+        day(max(day))::INTEGER AS dia_fin,
+        count(*)::INTEGER AS dias,
+        round(sum(rain), 1) AS lluvia,
+        round(max(rain), 1) AS pico
+      FROM grupos
+      GROUP BY grupo
+      HAVING max(rain) >= ${umbralPico}
+      ORDER BY min(day)
+    `)
+
+  const fecha = (row, suffix) => ({
+    anyo: Number(row[`anyo_${suffix}`]),
+    mes: Number(row[`mes_${suffix}`]),
+    dia: Number(row[`dia_${suffix}`]),
+  })
+
+  return {
+    total: Number(totalResult.toArray()[0].total),
+    umbralRacha,
+    umbralPico,
+    episodios: episodiosResult.toArray().map((row) => ({
+      inicio: fecha(row, 'ini'),
+      fin: fecha(row, 'fin'),
+      dias: Number(row.dias),
+      lluvia: Number(row.lluvia),
+      pico: Number(row.pico),
+    })),
+  }
+}
+
+/**
  * Temperaturas máximas diarias de un mes y año concretos.
  */
 export async function tempsMaximasMesAnio(mes, anyo) {
