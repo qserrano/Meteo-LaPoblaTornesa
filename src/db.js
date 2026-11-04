@@ -58,6 +58,8 @@ export async function initDb() {
         TRY_CAST(replace(MEAN_TEMP, ',', '.') AS DOUBLE) AS mean_temp,
         TRY_CAST(replace(HIGH_TEMP, ',', '.') AS DOUBLE) AS high_temp,
         TRY_CAST(replace(LOW_TEMP, ',', '.') AS DOUBLE) AS low_temp,
+        TRY_CAST(HIGH_TEMP_TIME AS TIME) AS high_temp_time,
+        TRY_CAST(LOW_TEMP_TIME AS TIME) AS low_temp_time,
         TRY_CAST(replace(RAIN, ',', '.') AS DOUBLE) AS rain,
         TRY_CAST(replace(MEAN_HUMID, ',', '.') AS DOUBLE) AS mean_humid,
         TRY_CAST(replace(AVG_WIND_SPEED, ',', '.') AS DOUBLE) AS avg_wind_speed,

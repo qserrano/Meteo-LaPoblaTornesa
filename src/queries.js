@@ -132,6 +132,38 @@ export async function anioTipo() {
   }
 }
 
+/**
+ * Día tipo: hora mediana de la máxima y de la mínima, y amplitud, por mes.
+ */
+export async function diaTipo() {
+  await initDb()
+  const result = await getConnection().query(`
+    SELECT
+      month(day)::INTEGER AS mes,
+      round(median(hour(high_temp_time) + minute(high_temp_time) / 60.0), 2) AS hora_max,
+      round(median(hour(low_temp_time) + minute(low_temp_time) / 60.0), 2) AS hora_min,
+      round(avg(high_temp - low_temp), 1) AS amplitud,
+      count(*)::INTEGER AS dias
+    FROM clima
+    WHERE high_temp_time IS NOT NULL
+      AND low_temp_time IS NOT NULL
+      AND high_temp IS NOT NULL
+      AND low_temp IS NOT NULL
+    GROUP BY month(day)
+    ORDER BY mes
+  `)
+
+  const meses = result.toArray().map((row) => ({
+    mes: Number(row.mes),
+    hora_max: Number(row.hora_max),
+    hora_min: Number(row.hora_min),
+    amplitud: Number(row.amplitud),
+    dias: Number(row.dias),
+  }))
+
+  return { meses }
+}
+
 /** Años presentes en la serie (para el selector). */
 export async function aniosDisponibles() {
   await initDb()

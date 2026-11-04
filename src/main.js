@@ -65,6 +65,7 @@ app.innerHTML = `
         <option value="maximas">Máximas diarias</option>
         <option value="mes-anios">Un mes frente a los otros años</option>
         <option value="anio-temp">Año tipo · temperatura</option>
+        <option value="dia-tipo">Día tipo</option>
         <option value="anio-lluvia">Año tipo · lluvia</option>
         <option value="episodios">Lluvia · episodios</option>
       </select>
@@ -174,6 +175,13 @@ function periodoTipo(datos) {
 function montarGrafica(canvas, config) {
   destroyChart()
   chart = new Chart(canvas, config)
+}
+
+function formatoHora(horas) {
+  const total = Math.round(Number(horas) * 60)
+  const h = Math.floor(total / 60) % 24
+  const m = total % 60
+  return `${h}:${String(m).padStart(2, '0')}`
 }
 
 function formatoNumero(n) {
@@ -590,12 +598,98 @@ function renderMesFrenteAnios(rows, mes, anyo) {
   })
 }
 
+function renderDiaTipo(datos) {
+  const meses = datos.meses
+  if (!meses.length) {
+    destroyChart()
+    resultsEl.innerHTML = `<p class="empty">No hay horas de máxima y mínima en la serie.</p>`
+    return
+  }
+
+  const maxTarde = extremo(meses, 'hora_max', 1)
+  const maxPronto = extremo(meses, 'hora_max', -1)
+  const minTarde = extremo(meses, 'hora_min', 1)
+  const minPronto = extremo(meses, 'hora_min', -1)
+  const ampMax = extremo(meses, 'amplitud', 1)
+  const ampMin = extremo(meses, 'amplitud', -1)
+
+  destroyChart()
+  resultsEl.innerHTML = `
+    <div class="chart-header">
+      <h2>Día tipo</h2>
+      <p class="chart-summary">
+        Hora mediana de cada mes. La máxima cae entre las ${formatoHora(maxPronto.hora_max)}
+        de ${mesDe(maxPronto).toLowerCase()} y las ${formatoHora(maxTarde.hora_max)}
+        de ${mesDe(maxTarde).toLowerCase()}; la mínima, entre las ${formatoHora(minPronto.hora_min)}
+        de ${mesDe(minPronto).toLowerCase()} y las ${formatoHora(minTarde.hora_min)}
+        de ${mesDe(minTarde).toLowerCase()}.
+        La amplitud del día se mantiene entre ${formatoNumero(ampMin.amplitud)}
+        y ${formatoNumero(ampMax.amplitud)} °C.
+      </p>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="temp-chart" aria-label="Hora mediana de la máxima y la mínima en cada mes"></canvas>
+    </div>
+  `
+
+  const linea = (label, clave, color) => ({
+    label,
+    data: meses.map((fila) => fila[clave]),
+    borderColor: color,
+    backgroundColor: color,
+    pointRadius: 3,
+    pointHoverRadius: 5,
+    borderWidth: 2,
+    tension: 0.25,
+  })
+
+  montarGrafica(document.querySelector('#temp-chart'), {
+    type: 'line',
+    data: {
+      labels: meses.map((fila) => MESES_CORTOS[fila.mes - 1]),
+      datasets: [
+        linea('Hora de la máxima', 'hora_max', '#c45c26'),
+        linea('Hora de la mínima', 'hora_min', '#0f6e8c'),
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#1a2b33' } },
+        tooltip: {
+          callbacks: {
+            label: (item) => `${item.dataset.label}: ${formatoHora(item.parsed.y)}`,
+            footer: (items) => `Amplitud ${formatoNumero(meses[items[0].dataIndex].amplitud)} °C`,
+          },
+        },
+      },
+      scales: {
+        x: { ...EJE, title: { ...EJE.title, display: true, text: 'Mes' } },
+        y: {
+          ...EJE,
+          min: 0,
+          max: 24,
+          ticks: {
+            ...EJE.ticks,
+            stepSize: 3,
+            callback: (value) => `${value} h`,
+          },
+          title: { ...EJE.title, display: true, text: 'Hora del día' },
+        },
+      },
+    },
+  })
+}
+
 async function start() {
   try {
     const { initDb, countRows } = await import('./db.js')
     const {
       aniosDisponibles,
       anioTipo,
+      diaTipo,
       episodiosLluvia,
       recordsSerie,
       temperaturaMesTodosAnios,
@@ -603,11 +697,12 @@ async function start() {
     } = await import('./queries.js')
 
     await initDb()
-    const [n, anios, records, anio, episodios] = await Promise.all([
+    const [n, anios, records, anio, dia, episodios] = await Promise.all([
       countRows(),
       aniosDisponibles(),
       recordsSerie(),
       anioTipo(),
+      diaTipo(),
       episodiosLluvia(),
     ])
     renderRecords(records)
@@ -634,6 +729,11 @@ async function start() {
         if (vista === 'anio-temp') {
           if (token !== solicitud) return
           renderAnioTemperatura(anio)
+          return
+        }
+        if (vista === 'dia-tipo') {
+          if (token !== solicitud) return
+          renderDiaTipo(dia)
           return
         }
         if (vista === 'anio-lluvia') {
